@@ -1,0 +1,278 @@
+---
+title: "Modélisation avec Caret"
+output: html_notebook
+author: "Delhaye.D"
+---
+
+
+Pour commencer nous devons partitionner notre dataset en un dataset d'entrainement et un de test. 
+
+```{r}
+### Partitionemment en jeu d'entrainement et de test. 
+intrain<- createDataPartition(data$embauche,p=0.7,list=FALSE) # On prend 70% en jeu d'entrainement 
+training<- data[intrain,]
+testing<- data[-intrain,]
+
+model_poids = ifelse(training$embauche == "X1", 
+                     nrow(training) / (2 * table(training$embauche)[2]),
+                     nrow(training) / (2 * table(training$embauche)[1]))
+
+
+training <- training  %>% 
+  mutate(embauche = factor(embauche, 
+                        labels = make.names(levels(embauche))))
+
+testing <- testing  %>% 
+  mutate(embauche = factor(embauche, 
+                           labels = make.names(levels(embauche))))
+
+
+# On effectue une cross-validatio avec 10 folds répété 5 fois
+ctrl <- trainControl(method = "repeatedcv",
+                     number = 10,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary,
+                     repeats = 5,
+                     allowParallel = TRUE)
+```
+
+
+
+## Test avec un Gbm 
+
+```{r}
+# test avec Gbm
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+
+set.seed(5627)
+orig_fit <- train(embauche ~ .,
+                  data = training,
+                  method = "gbm",
+                  verbose = FALSE,
+                  metric = "ROC",
+                  trControl = ctrl)
+orig_fit %>%
+  test_roc(data = testing) %>%
+  auc()
+
+stopCluster(cl)
+
+ctrl$seeds <- orig_fit$control$seeds
+```
+
+## Test avec un Random Forest
+
+
+
+```{r}
+### Avec un Rf 
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+rf_default <- train( embauche~., data= training, method="rf", metric = "ROC", trControl = ctrl)
+
+rf_default %>%
+  test_roc(data = testing) %>%
+  auc()
+stopCluster(cl)
+
+
+ctrl$seeds <- orig_fit$control$seeds
+```
+
+
+## Sous échantillonage 
+```{r}
+## Sous échantillonage
+
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+ctrl$sampling <- "down"
+
+down_fit <- train(embauche ~ .,
+                  data = training,
+                  method = "gbm",
+                  verbose = FALSE,
+                  metric = "ROC",
+                  trControl = ctrl)
+stopCluster(cl)
+
+down_fit %>%
+  test_roc(data = testing) %>%
+  auc()
+```
+
+
+
+```{r}
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+rf_down <- train( embauche~., data= training, method="rf", metric = "ROC", trControl = ctrl)
+
+rf_down %>%
+  test_roc(data = testing) %>%
+  auc()
+stopCluster(cl)
+```
+
+
+## Sur échantillonage
+```{r}
+# Sur échantillonage
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+ctrl$sampling <- "up"
+
+up_fit <- train(embauche ~ .,
+                data = training,
+                method = "gbm",
+                verbose = FALSE,
+                metric = "ROC",
+                trControl = ctrl)
+stopCluster(cl)
+
+up_fit %>%
+  test_roc(data = testing) %>%
+  auc()
+```
+
+
+```{r}
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+
+rf_up <- train(embauche ~ .,
+                data = training,
+                method = "rf",
+                verbose = FALSE,
+                metric = "ROC",
+                trControl = ctrl)
+stopCluster(cl)
+
+rf_up %>%
+  test_roc(data = testing) %>%
+  auc()
+```
+
+
+## Smote 
+
+```{r}
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+ctrl$sampling <- "smote"
+
+smote_fit <- train(embauche ~ .,
+                   data = training,
+                   method = "gbm",
+                   verbose = FALSE,
+                   metric = "ROC",
+                   trControl = ctrl)
+smote_fit %>%
+  test_roc(data = testing) %>%
+  auc()
+
+stopCluster(cl)
+```
+
+
+```{r}
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+
+rf_smote <- train(embauche ~ .,
+                   data = training,
+                   method = "rf",
+                   verbose = FALSE,
+                   metric = "ROC",
+                   trControl = ctrl)
+rf_smote %>%
+  test_roc(data = testing) %>%
+  auc()
+
+stopCluster(cl)
+```
+
+## Avec poids
+
+```{r}
+# weight
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+weighted_fit <- train(embauche ~ .,
+                      data = training,
+                      method = "gbm",
+                      verbose = FALSE,
+                      weights = model_poids,
+                      metric = "ROC",
+                      trControl = ctrl)
+
+
+stopCluster(cl)
+ weighted_fit %>%
+  test_roc(data = testing) %>%
+  auc()
+```
+
+## Résultats
+```{r}
+model_list <- list(random_forest = rf_default,
+                   original = orig_fit,
+                   weighted = weighted_fit,
+                   down = down_fit,
+                   up = up_fit,
+                   SMOTE = smote_fit)
+
+model_list_roc <- model_list %>%
+  map(test_roc, data = testing)
+
+model_list_roc %>%
+  map(auc)
+```
+
+
+## Courbe ROC 
+
+```{r}
+results_list_roc <- list(NA)
+num_mod <- 1
+
+for(the_roc in model_list_roc){
+  
+  results_list_roc[[num_mod]] <- 
+    data_frame(tpr = the_roc$sensitivities,
+               fpr = 1 - the_roc$specificities,
+               model = names(model_list)[num_mod])
+  
+  num_mod <- num_mod + 1
+  
+}
+
+results_df_roc <- bind_rows(results_list_roc)
+
+# Affichage courbe ROC pour les 5 modèles 
+
+custom_col <- c("#3399FF","#000000", "#009E73", "#0072B2", "#D55E00", "#CC79A7")
+
+a <- ggplot(aes(x = fpr,  y = tpr, group = model), data = results_df_roc) +
+  geom_line(aes(color = model), size = 1) +
+  scale_color_manual(values = custom_col) +
+  geom_abline(intercept = 0, slope = 1, color = "gray", size = 1) +
+  theme_bw(base_size = 18)
+
+ggplotly(a)
+```
+
+
+
+```{r}
+#Affichage importances variables Random Forest
+
+par(mfrow =c(1,2))
+plot(varImp(rf_default), main="Importance variables Random Forest")
+summary(orig_fit, las = 2)
+  
+plot(varImp(orig_fit, scale = FALSE), main="Importance variables Gbm")
+```
+
+
