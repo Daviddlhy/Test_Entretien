@@ -1,0 +1,171 @@
+---
+title: "Test"
+output: html_notebook
+author : Delhaye.D
+---
+
+Le but de ce projet est de concevoir un modèle permettant de prédire la variable embauche.
+Dans ce projet il existe plusieurs contraintes :
+- La variable note est comprise entre 0 et 100.
+- La variable diplôme represente le dernier diplôme obtenu par le cadidat.
+- La variable expérience représente le nb d'années d'expériences professionnelle.
+Nous allonrs faire l'hypothèse que le nb d'année d'expérience est donnée après le derner diplôme obtenu. 
+Enfin on doit porter attention à la présence de Na dans le dataset.
+
+# Packages : 
+On commence par télécharger les packages et le dataset.
+Et on appelle le fichier R contenant les fonctions. 
+
+```{r, message=FALSE}
+# Permet l'execution du script contenant les fonctions
+  source("Fonctions.R")
+  data <- add_na(data)
+# Renvoie le pourcentage de Na dans chaque colonne du dataset 
+  nb_NA(data)
+# On retire les variables comportant : #CHAMP!
+  data <- data[-which(data$exp=="#CHAMP!"),]
+  data <- data[-which(data$age=="#CHAMP!"),]
+  print(nb_NA(data))
+```
+
+On remarque que le nombre de Na dans les variables est inférieur à 1%. On peut donc décider d'enlever les lignes contenant des NA.
+
+Regardons le boxplot de la variable note. 
+La note au test doit être comprise entre 0 et 100. 
+
+```{r}
+### Répartition de la note des candidats :
+  ggplot(data = data, aes( ,y = note)) + geom_boxplot() + labs(x = "Note", y = "Count", title = "Répartition Note")
+```
+
+On peut remarquer que des notes sont supérieurs à 100. Ce qui ne peut pas être possible. 
+
+Quelle est la proportion d'individu ayant une note supérieur à 100  ?
+
+```{r}
+dim(data %>% filter(note >100))[1]
+```
+Il y a 1465 personne ayant une note supérieur à 100 
+Notre jeu de données comporte 20 000 candidats 
+Dans ce test là, je décide d'enelever ces candidats
+
+```{r}
+table(data %>% filter(note > 100) %>% dplyr::select(embauche))
+```
+
+On enlève 139 candidats admis pour embauche 
+On aurait pu metttre les notes de ces candidats à 100. Mais cela induirer un biais.
+
+On peut se demander si il y a des candidats ayant un âge inférieur à 18 ans. Sur le graphique nous effectuons la ditribution de l'âge et ajoutons une ligne verticale à x = 18.
+
+```{r}
+### Répartition de l'âge des candidats :
+p <- ggplot(data = data, aes( x = age)) + geom_bar() + labs(x = "Âge", y = "Count", title = "Répartition de l'age") + geom_vline(xintercept= 18,color="blue", linetype="dashed", size=1) + theme(
+      axis.text.x =  element_text(angle = 45, hjust = 1,size = 7 ))
+ggplotly(p)
+
+# Enleve la mémoire de l'objet
+rm(p)
+gc()
+```
+
+Ensuite on doit enlever les candidats qui ont une expérience plus grande que leurs âges.
+De même le Bac étant le plus petit diplôme nous allons considérer que les candidats ont au moins 18 ans.
+En effet un candidat ayant 12 ans et le bac cela n'existe pas.
+Ensuite nous allons considérer que expérience signifie le nombre d'années d'éxpériences professionelles après l'obtention du dernier diplôme. 
+
+```{r}
+# Cf Fonction dans sle fichier Fonctions.R 
+data <- Clear_dataset()
+```
+
+Nous allons arranger la variables date. Nous allons garder l'information du mois de depôt de la candidature.
+
+```{r}
+data$date <- as.Date(data$date, tryFormats = c("%d/%m/%Y"))
+data <- data %>% mutate(date = factor(substr(date,6,7)))
+```
+
+# Statistique descriptive :
+
+Utilisons des graphiques pour mieux appréhender nos données.
+Notamment les données numériques en fonction des données catégorielles.
+
+```{r}
+### Graphique de la variable Age
+graphique("age")
+### Graphique de la variable Expérience
+graphique("exp")
+#ggsave("Expérience.png")
+### Graphique de la variable Salaire
+graphique("salaire")
+#ggsave("Salaire.png")
+graphique("note")
+graphique("embauche")
+```
+
+Analysons la variable Embauche
+```{r}
+ggplot(data = data, aes(x = embauche,)) + geom_bar() + labs(x = "Embauche", y = "Count", title = "Candidature Admise")
+
+ggplot(data = data, aes(x = embauche,)) + geom_bar(aes(fill = cheveux), position = "dodge",col ="black") + labs(x = "Embauche", y = "Count", title = "Candidature Admise")
+
+ggplot(data = data, aes(x = embauche,)) + geom_bar(aes(fill = sexe), position = "dodge",col ="black") + labs(x = "Embauche", y = "Count", title = "Candidature Admise")
+
+ggplot(data = data, aes(x = embauche,)) + geom_bar(aes(fill = diplome), position = "dodge",col ="black") + labs(x = "Embauche", y = "Count", title = "Candidature Admise")
+
+ggplot(data = data, aes(x = embauche,)) + geom_bar(aes(fill = specialite), position = "dodge",col ="black") + labs(x = "Embauche", y = "Count", title = "Candidature Admise")
+
+
+ggplot(data = data, aes(x = embauche,)) + geom_bar(aes(fill = dispo), position = "dodge",col ="black") + labs(x = "Embauche", y = "Count", title = "Candidature Admise")
+```
+
+Maintenant testons la corrélation entre les variables numériques : 
+
+```{r}
+### On trace une matrice de corrélation sur les variables numériques
+  num <- cor(data[,c(3:5,9)], method = "kendall")
+  corrplot(num, method="circle")
+```
+On remarque que les variables note et salaire semble corrélées de façon négative.
+
+# Questions 
+## Question Y a-t-il une dépendance statistiquement significative entre la spécialité et le sexe ?
+
+```{r}
+### On fait appel à la fonction question 1 qui renvoie un test du khi-deux.
+  Reponse1 <-  question1()
+  Reponse1$test_khideux
+```
+
+Il semblerait qu'il y une différence de spécialité entre les Hommes et les femmes ( Archéologie et Géologie).
+Ces deux variables étant des variables qualitatives 
+On va commencer par faire une table de contingence 
+Pour tester l'indépendance entre ces deux variables, nous allons effectuer un tes du chi Deux. 
+Est-ce que chaque case du tableau à un effectif supérieur ou égal à 5 et est-ce que les effectifs totaux du tableau sont supérieurs à 60 ? Oui nous pouvons réaliser ce test.
+On pose donc l'hypothèse H0 (d'indépendance) : il n'y a pas de différence significative entre ces deux variables. Voyons si cette hypothèse est acceptable ou non.
+La p-value étant de 2.2 10-16 < 0,05. On rejette H0. 
+On peut conclure qu'il y a une dépendance statistique entre le sexe et la spécialité.
+
+## Question 3 
+
+Pour tester la dépendance entre deux variables numérique on veut effectuer un test de corrélation de pearson cependant on doit vérifier que les variables suivent une loi normale. 
+
+On ne peut donc pas utilsier le test de corrélation de pearson, cependant on peut utiliser celui avec la méthdoe de Kendall qui ne demande pas la normalité de la distribution. 
+
+Le coeéfficient de corrélation vaut -0,0086 et la p-value est de 0.0087. 
+On peut en déduire ques les variables ne sont pas dépendantes.
+
+```{r}
+### On fait appel à la fonction question3 qui renvoie un test de normalite de shapiro sur la variable note
+### ensuite sur la variable Expérience et enfin renvoie le test de corrélation
+  Reponse3 <- question3()
+  Reponse3$Note
+  Reponse3$Expérience
+  Reponse3$Test_corrélation
+### Libère la mémoire de R
+rm(Reponse1, Reponse3, fit,num)
+gc()
+```
+
+
